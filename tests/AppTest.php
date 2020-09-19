@@ -2,16 +2,23 @@
 
 namespace Tests;
 
+
+use App\BinProvider;
+use App\CurrencyConverter;
+use App\DefaultCurrencyConverter;
+use App\DefaultEntryValidator;
+use App\Entry;
+use App\ExchangeRateProvider;
+use App\FeeCalculator;
 use PHPUnit\Framework\TestCase;
 
 class AppTest extends TestCase
 
 {
-    use \phpmock\phpunit\PHPMock;
-
-
     /**
      * @dataProvider round_data_provider
+     * @param $amount
+     * @param $expected
      */
     function test_round_function($amount, $expected)
     {
@@ -29,28 +36,51 @@ class AppTest extends TestCase
 
     /**
      * @dataProvider fee_data_provider
+     * @param $amount
+     * @param $country_code
+     * @param $expected
+     * @throws \Exception
      */
     function test_calculate_fee($amount, $country_code, $expected)
     {
-        $this->assertSame($expected, calculate_fee($amount, $country_code));
+        $bin_stub = $this->createStub(BinProvider::class);
+        $bin_stub->method('get_country_code_by_bin')
+            ->willReturn($country_code);
+
+        $currency_converter_stub = $this->createStub(CurrencyConverter::class);
+        $currency_converter_stub->method('get_amount_in_eur')
+            ->willReturn($amount);
+
+        $fee_calculator = new FeeCalculator($bin_stub, $currency_converter_stub);
+        $this->assertSame($expected, $fee_calculator->calculate('SOME_UNUSED_VALUE', $amount, $country_code));
     }
 
     function fee_data_provider()
     {
         return [
-            [0.0, '', 0.0],
+            [0.0, 'RU', 0.0],
             [0.0, 'DE', 0.0],
-            [100.0, '', 2.0],
+            [100.0, 'RU', 2.0],
             [100.0, 'DE', 1.0],
         ];
     }
 
     /**
      * @dataProvider currency_exchange_data_provider
+     * @param $amount
+     * @param $rate
+     * @param $expected
+     * @throws \Exception
      */
     function test_currency_exchange($amount, $rate, $expected)
     {
-        $this->assertSame($expected, get_amount_in_eur($amount, $rate));
+        $exchange_rate_stub = $this->createStub(ExchangeRateProvider::class);
+        $exchange_rate_stub->method('get_exchange_rate_for_currency')
+            ->willReturn($rate);
+
+        $converter = new DefaultCurrencyConverter($exchange_rate_stub);
+
+        $this->assertSame($expected, $converter->get_amount_in_eur($amount, ''));
     }
 
     function currency_exchange_data_provider()
@@ -64,13 +94,39 @@ class AppTest extends TestCase
     }
 
     /**
+     * @dataProvider entry_data_provider
+     */
+    function test_entry($data)
+    {
+        $entry = new Entry($data);
+        foreach ($data as $key => $value) {
+            $this->assertSame($value, $entry->{$key});
+        }
+    }
+
+    function entry_data_provider()
+    {
+        return [
+            [
+                [
+                    'bin' => '45717360',
+                    'amount' => '100.00',
+                    'currency' => 'EUR'
+                ]
+            ],
+        ];
+    }
+
+    /**
      * @dataProvider validate_entry_data_provider
-     * @param $entry
+     * @depends      test_entry
+     * @param $data
      * @param $expected
      */
-    function test_validate_entry($entry, $expected)
+    function test_validate_entry($data, $expected)
     {
-        $this->assertSame($expected, validate_entry($entry));
+        $validator = new DefaultEntryValidator();
+        $this->assertSame($expected, $validator->validate(new Entry($data)));
     }
 
     function validate_entry_data_provider()
@@ -103,52 +159,26 @@ class AppTest extends TestCase
     }
 
     /**
-     * @dataProvider parse_line_data_provider
+     * @dataProvider entry_with_not_allowed_field_data_provider
+     * @depends      test_validate_entry
+     * @param $data
      */
-    function test_parse_line($line, $expected)
+    function test_entry_with_not_allowed_field($data)
     {
-        $this->assertSame($expected, parse_line($line));
+        $entry = new Entry($data);
+        foreach (array_keys($data) as $key) {
+            $this->assertEmpty($entry->{$key});
+        }
     }
 
-    function parse_line_data_provider()
+    function entry_with_not_allowed_field_data_provider()
     {
         return [
             [
-                '{"bin":"45717360","amount":"100.00","currency":"EUR"}',
                 [
-                    'bin' => '45717360',
-                    'amount' => '100.00',
-                    'currency' => 'EUR'
+                    'SOME_KEY' => 'SOME_VALUE'
                 ]
-            ],
-        ];
-    }
-
-    /**
-     * @dataProvider app_data_provider
-     */
-    function test_app($line, $country_code, $rate, $expected)
-    {
-        $bin_lookup_mock = $this->getFunctionMock(__NAMESPACE__, 'get_country_code_by_bin');
-        $bin_lookup_mock->expects($this->once())->willReturn($country_code);
-        $exchange_rate_mock = $this->getFunctionMock(__NAMESPACE__, 'get_exchange_rate_for_currency');
-        $exchange_rate_mock->expects($this->once())->willReturn($rate);
-
-        $entry = parse_line($line);
-        $country_code = get_country_code_by_bin($entry['bin']);
-        $rate = get_exchange_rate_for_currency($entry['currency']);
-        $eur_amount = get_amount_in_eur($entry['amount'], $rate);
-        $fee = calculate_fee($eur_amount, $country_code);
-        $fee = round_fee_by_cents($fee);
-
-        $this->assertSame($expected, $fee);
-    }
-
-    function app_data_provider()
-    {
-        return [
-            ['{"bin":"516793","amount":"50.00","currency":"USD"}', 'RU', 0.5, 2.0],
-            ['{"bin":"45717360","amount":"100.00","currency":"EUR"}', 'DE', 0, 1.0]
+            ]
         ];
     }
 }
