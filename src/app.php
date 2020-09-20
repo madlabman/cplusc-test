@@ -41,14 +41,3 @@ if (!empty($argv[1])) {
 } else {
     echo 'Usage: php app.php <filename>' . PHP_EOL;
 }
-
-
-
-
-
-
-
-
-
-
-

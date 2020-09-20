@@ -86,7 +86,7 @@ class AppTest extends TestCase
 
         $converter = new DefaultCurrencyConverter($exchange_rate_stub);
 
-        $this->assertSame($expected, $converter->get_amount_in_eur($amount, ''));
+        $this->assertSame($expected, $converter->get_amount_in_eur($amount, 'SOME_UNUSED_VALUE'));
     }
 
     function currency_exchange_data_provider()
