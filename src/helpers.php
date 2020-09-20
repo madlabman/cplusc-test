@@ -65,5 +65,16 @@ function api_request($uri)
  */
 function round_fee_by_cents(float $amount)
 {
-    return ceil(round($amount, 4) * 100) / 100;
+    // Set acceptable scale value
+    $prev_scale = bcscale(64);
+    // Round value
+    $amount_rounded = round(abs($amount), 2);
+    // Compare amounts, rounded should be greater, otherwise add cent
+    if (bccomp($amount_rounded, abs($amount)) == -1 ) {
+        $amount_rounded = bcadd($amount_rounded, 0.01);
+    }
+    // Change back scale
+    bcscale($prev_scale);
+
+    return $amount_rounded * ($amount > 0 ?: -1);
 }
